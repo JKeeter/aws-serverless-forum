@@ -1,0 +1,7 @@
+{
+  "name": "forum-api",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Forum API Lambda. AWS SDK v3 is provided by the Node 20 Lambda runtime.",
+  "private": true
+}

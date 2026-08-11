@@ -1,0 +1,462 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Serverless community forum:
+  S3 + CloudFront front end, HTTP API + Lambda, DynamoDB, Cognito.
+
+Parameters:
+  DomainName:
+    Type: String
+    Default: ''
+    Description: Custom domain (e.g. forum.example.com). Leave empty to use the CloudFront default domain first.
+  AcmCertificateArn:
+    Type: String
+    Default: ''
+    Description: ACM certificate ARN in us-east-1 for the domain. Required only when DomainName is set.
+  CognitoDomainPrefix:
+    Type: String
+    Default: serverless-forum
+    Description: Globally-unique prefix for the Cognito hosted login domain.
+  GoogleClientId:
+    Type: String
+    Default: ''
+    Description: Google OAuth client ID (from Google Cloud console). Leave empty to disable Google login.
+  GoogleClientSecret:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Google OAuth client secret. Required only when GoogleClientId is set.
+  FacebookClientId:
+    Type: String
+    Default: ''
+    Description: Facebook/Meta app ID. Leave empty to disable Facebook login.
+  FacebookClientSecret:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Facebook/Meta app secret. Required only when FacebookClientId is set.
+
+Conditions:
+  HasDomain: !And
+    - !Not [!Equals [!Ref DomainName, '']]
+    - !Not [!Equals [!Ref AcmCertificateArn, '']]
+  HasGoogle: !Not [!Equals [!Ref GoogleClientId, '']]
+  HasFacebook: !Not [!Equals [!Ref FacebookClientId, '']]
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Timeout: 10
+    MemorySize: 256
+    Architectures: [arm64]
+
+Resources:
+
+  # ------------------------------------------------------------ DynamoDB
+  ForumTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub '${AWS::StackName}-forum'
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      AttributeDefinitions:
+        - {AttributeName: PK,     AttributeType: S}
+        - {AttributeName: SK,     AttributeType: S}
+        - {AttributeName: GSI1PK, AttributeType: S}
+        - {AttributeName: GSI1SK, AttributeType: N}
+        - {AttributeName: GSI2PK, AttributeType: S}
+        - {AttributeName: GSI2SK, AttributeType: N}
+      KeySchema:
+        - {AttributeName: PK, KeyType: HASH}
+        - {AttributeName: SK, KeyType: RANGE}
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1     # FORUM recent-activity feed + CATLIST category list
+          KeySchema:
+            - {AttributeName: GSI1PK, KeyType: HASH}
+            - {AttributeName: GSI1SK, KeyType: RANGE}
+          Projection: {ProjectionType: ALL}
+        - IndexName: GSI2     # topics per category ordered by last activity
+          KeySchema:
+            - {AttributeName: GSI2PK, KeyType: HASH}
+            - {AttributeName: GSI2SK, KeyType: RANGE}
+          Projection: {ProjectionType: ALL}
+
+  # ------------------------------------------------------------ Cognito
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub '${AWS::StackName}-members'
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      MfaConfiguration: 'OFF'
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 7
+          RequireLowercase: true      # letters
+          RequireNumbers: true        # numbers
+          RequireUppercase: false
+          RequireSymbols: true        # one special character
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - {Name: verified_email, Priority: 1}
+      Schema:
+        - {Name: email, Required: true, Mutable: true}
+
+  AdminsGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: admins
+      UserPoolId: !Ref UserPool
+      Description: Forum moderators/admins
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Ref CognitoDomainPrefix
+      UserPoolId: !Ref UserPool
+      ManagedLoginVersion: 2          # new branded "Managed Login" (vs 1 = classic hosted UI)
+
+  # Social login. Only created when you supply the app credentials; until then
+  # the forum runs on email/password (COGNITO) alone. Add the params and redeploy
+  # to switch these on — no code change needed.
+  GoogleIdP:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Condition: HasGoogle
+    Properties:
+      UserPoolId: !Ref UserPool
+      ProviderName: Google
+      ProviderType: Google
+      ProviderDetails:
+        client_id: !Ref GoogleClientId
+        client_secret: !Ref GoogleClientSecret
+        authorize_scopes: 'openid email profile'
+      AttributeMapping:
+        email: email
+        name: name
+
+  FacebookIdP:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Condition: HasFacebook
+    Properties:
+      UserPoolId: !Ref UserPool
+      ProviderName: Facebook
+      ProviderType: Facebook
+      ProviderDetails:
+        client_id: !Ref FacebookClientId
+        client_secret: !Ref FacebookClientSecret
+        authorize_scopes: 'public_profile,email'
+      AttributeMapping:
+        email: email
+        name: name
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: forum-web
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      # Embedded login/sign-up call the Cognito API directly (email+password over
+      # HTTPS) instead of the hosted UI; social login still uses the OAuth flow below.
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [code]
+      AllowedOAuthScopes: [openid, email, profile]
+      # COGNITO is always on; Google/Facebook appear only when their creds are set.
+      # Using !Ref on the IdP (which resolves to the provider name) makes the client
+      # depend on the IdP implicitly — no DependsOn on a maybe-absent resource.
+      SupportedIdentityProviders: !If
+        - HasGoogle
+        - !If [HasFacebook, [COGNITO, !Ref GoogleIdP, !Ref FacebookIdP], [COGNITO, !Ref GoogleIdP]]
+        - !If [HasFacebook, [COGNITO, !Ref FacebookIdP], [COGNITO]]
+      # NOTE: intentionally does NOT reference the CloudFront distribution here.
+      # Doing so created a circular dependency (Client → Distribution → HttpApi →
+      # Client, since the API's JWT authorizer audience is this client). deploy.sh
+      # adds the real CloudFront domain to these URL lists after the stack is up,
+      # via `aws cognito-idp update-user-pool-client`.
+      CallbackURLs:
+        - !If [HasDomain, !Sub 'https://${DomainName}/', 'http://localhost:8100/']
+        - 'http://localhost:8000/'
+      LogoutURLs:
+        - !If [HasDomain, !Sub 'https://${DomainName}/', 'http://localhost:8100/']
+        - 'http://localhost:8000/'
+      AccessTokenValidity: 8
+      IdTokenValidity: 8
+      RefreshTokenValidity: 30
+      TokenValidityUnits: {AccessToken: hours, IdToken: hours, RefreshToken: days}
+
+  # ------------------------------------------------------------ API
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: $default
+      Auth:
+        Authorizers:
+          CognitoJwt:
+            JwtConfiguration:
+              issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}'
+              audience: [!Ref UserPoolClient]
+            IdentitySource: '$request.header.Authorization'
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/api/
+      Handler: index.handler
+      Environment:
+        Variables:
+          TABLE: !Ref ForumTable
+          MEDIA_BUCKET: !Ref MediaBucket
+          USER_POOL_ID: !Ref UserPool
+      Policies:
+        - DynamoDBCrudPolicy: {TableName: !Ref ForumTable}
+        # Presign uploads only into the members' upload prefix and the admin
+        # gallery prefix — nothing else.
+        - Statement:
+            - Effect: Allow
+              Action: s3:PutObject
+              Resource:
+                - !Sub '${MediaBucket.Arn}/media/uploads/*'
+                - !Sub '${MediaBucket.Arn}/media/gallery/*'
+                - !Sub '${MediaBucket.Arn}/media/avatars/*'
+        # Read the member list for the admin roster (contact info lives in Cognito).
+        - Statement:
+            - Effect: Allow
+              Action: cognito-idp:ListUsers
+              Resource: !GetAtt UserPool.Arn
+      Events:
+        # ---- public reads ----
+        GetCategories:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/categories', Method: GET}
+        GetTopics:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/categories/{catId}/topics', Method: GET}
+        GetTopic:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/topics/{topicId}', Method: GET}
+        GetRecent:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/recent', Method: GET}
+        GetAnnouncements:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/announcements', Method: GET}
+        GetAlbums:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/albums', Method: GET}
+        GetAlbumPhotos:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/albums/{albumId}/photos', Method: GET}
+        GetPage:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/pages/{slug}', Method: GET}
+        GetLinks:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/links', Method: GET}
+        # ---- authenticated writes ----
+        CreateCategory:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/categories', Method: POST, Auth: {Authorizer: CognitoJwt}}
+        CreateTopic:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/categories/{catId}/topics', Method: POST, Auth: {Authorizer: CognitoJwt}}
+        CreatePost:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/topics/{topicId}/posts', Method: POST, Auth: {Authorizer: CognitoJwt}}
+        EditPost:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/topics/{topicId}/posts/{postId}', Method: PUT, Auth: {Authorizer: CognitoJwt}}
+        DeletePost:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/topics/{topicId}/posts/{postId}', Method: DELETE, Auth: {Authorizer: CognitoJwt}}
+        CreateUpload:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/uploads', Method: POST, Auth: {Authorizer: CognitoJwt}}
+        GetMe:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/me', Method: GET, Auth: {Authorizer: CognitoJwt}}
+        PutMe:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/me', Method: PUT, Auth: {Authorizer: CognitoJwt}}
+        GetUser:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/users/{sub}', Method: GET, Auth: {Authorizer: CognitoJwt}}
+        GetMembers:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/members', Method: GET, Auth: {Authorizer: CognitoJwt}}
+        GetRoster:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/roster', Method: GET, Auth: {Authorizer: CognitoJwt}}
+        # ---- admin content management: announcements ----
+        CreateAnnouncement:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/announcements', Method: POST, Auth: {Authorizer: CognitoJwt}}
+        EditAnnouncement:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/announcements/{id}', Method: PUT, Auth: {Authorizer: CognitoJwt}}
+        DeleteAnnouncement:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/announcements/{id}', Method: DELETE, Auth: {Authorizer: CognitoJwt}}
+        # ---- admin content management: gallery albums + photos ----
+        CreateAlbum:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/albums', Method: POST, Auth: {Authorizer: CognitoJwt}}
+        EditAlbum:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/albums/{albumId}', Method: PUT, Auth: {Authorizer: CognitoJwt}}
+        DeleteAlbum:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/albums/{albumId}', Method: DELETE, Auth: {Authorizer: CognitoJwt}}
+        AddPhoto:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/albums/{albumId}/photos', Method: POST, Auth: {Authorizer: CognitoJwt}}
+        DeletePhoto:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/albums/{albumId}/photos/{photoId}', Method: DELETE, Auth: {Authorizer: CognitoJwt}}
+        UpdatePage:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/pages/{slug}', Method: PUT, Auth: {Authorizer: CognitoJwt}}
+        UpdateLinks:
+          Type: HttpApi
+          Properties: {ApiId: !Ref HttpApi, Path: '/api/links', Method: PUT, Auth: {Authorizer: CognitoJwt}}
+
+  # ------------------------------------------------------------ Buckets
+  WebBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-web-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  MediaBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-media-${AWS::AccountId}'
+      # Browsers PUT attachments directly to S3 via a presigned URL, so the
+      # bucket must answer the preflight. The presigned URL is the authorization.
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods: [PUT, GET, HEAD]
+            AllowedOrigins: ['*']
+            AllowedHeaders: ['*']
+            MaxAge: 3000
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${AWS::StackName}-oac'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  WebBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: {Service: cloudfront.amazonaws.com}
+            Action: s3:GetObject
+            Resource: !Sub '${WebBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
+
+  MediaBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MediaBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: {Service: cloudfront.amazonaws.com}
+            Action: s3:GetObject
+            Resource: !Sub '${MediaBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
+
+  # ------------------------------------------------------------ CloudFront
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "${AWS::StackName} forum"
+        DefaultRootObject: index.html
+        HttpVersion: http2
+        PriceClass: PriceClass_100
+        Aliases: !If [HasDomain, [!Ref DomainName, !Sub 'www.${DomainName}'], !Ref 'AWS::NoValue']
+        ViewerCertificate: !If
+          - HasDomain
+          - AcmCertificateArn: !Ref AcmCertificateArn
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - CloudFrontDefaultCertificate: true
+        Origins:
+          - Id: web
+            DomainName: !GetAtt WebBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt OriginAccessControl.Id
+            S3OriginConfig: {OriginAccessIdentity: ''}
+          - Id: media
+            DomainName: !GetAtt MediaBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt OriginAccessControl.Id
+            S3OriginConfig: {OriginAccessIdentity: ''}
+          - Id: api
+            DomainName: !Sub '${HttpApi}.execute-api.${AWS::Region}.amazonaws.com'
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+        DefaultCacheBehavior:
+          TargetOriginId: web
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6   # CachingOptimized
+        CacheBehaviors:
+          - PathPattern: '/api/*'
+            TargetOriginId: api
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad          # CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # AllViewerExceptHostHeader
+          - PathPattern: '/media/*'
+            TargetOriginId: media
+            ViewerProtocolPolicy: redirect-to-https
+            Compress: true
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+
+Outputs:
+  SiteURL:
+    Value: !If [HasDomain, !Sub 'https://${DomainName}', !Sub 'https://${Distribution.DomainName}']
+  CloudFrontDomain:
+    Value: !GetAtt Distribution.DomainName
+  DistributionId:
+    Value: !Ref Distribution
+  ApiEndpoint:
+    Value: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com'
+  WebBucketName:
+    Value: !Ref WebBucket
+  MediaBucketName:
+    Value: !Ref MediaBucket
+  TableName:
+    Value: !Ref ForumTable
+  UserPoolId:
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Value: !Ref UserPoolClient
+  CognitoDomain:
+    Value: !Sub '${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com'

@@ -1,0 +1,12 @@
+node_modules/
+.aws-sam/
+build/
+__pycache__/
+*.pem
+*.tar
+*.tar.Z
+*.zip
+.DS_Store
+samconfig.toml
+.superpowers/
+docs/superpowers/

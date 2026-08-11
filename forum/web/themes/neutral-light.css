@@ -1,0 +1,9 @@
+/* Theme: neutral-light (default). Every theme defines exactly this variable set. */
+:root{--bg:#f5f6f8;--card:#ffffff;--ink:#1e242c;--muted:#6b7684;--accent:#2563eb;
+--accent2:#3b82f6;--line:#e2e6ec;--rowalt:#f0f3f7;--head:#1e3a8a;--danger:#b91c1c;
+--frame-bg:#1c2430;--nav-bg:#243247;--nav-border:#1b2637;--nav-ink:#d7dee8;
+--nav-active-bg:#2563eb;--nav-active-ink:#ffffff;--pill-bg:#e8eefb;--pill-ink:#1e3a8a;
+--hero-bg:#eef2f8;--hero-border:#d9e0ea;--hl:#2563eb;--ok:#15803d;
+--err-bg:#fdecea;--err-border:#f5c6c0;--err-ink:#8a1f14;--footer-ink:#9aa6b5;--btn-ink:#ffffff;
+--display:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+--font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}

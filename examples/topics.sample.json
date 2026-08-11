@@ -1,0 +1,32 @@
+{
+  "topics": [
+    {
+      "id": "t1",
+      "title": "Welcome to the forum",
+      "category": "General",
+      "author": "Admin",
+      "createdTs": 1600000000,
+      "posts": [
+        { "author": "Admin", "body": "Welcome! Introduce yourself and have a look around.", "ts": 1600000000 },
+        { "author": "Pat", "body": "Glad to be here — this looks great.", "ts": 1600000600 }
+      ]
+    },
+    {
+      "id": "t2",
+      "title": "Getting started: how do I post?",
+      "category": "General",
+      "posts": [
+        { "author": "Sam", "body": "How do I create a new topic in a category?", "ts": 1600100000 },
+        { "author": "Admin", "body": "Open the category and use the New Topic button at the top.", "ts": 1600100300 }
+      ]
+    },
+    {
+      "id": "t3",
+      "title": "Summer picnic planning",
+      "category": "Events",
+      "posts": [
+        { "author": "Deb", "body": "Who is bringing the grill this year? Post ideas here.", "ts": 1600200000 }
+      ]
+    }
+  ]
+}

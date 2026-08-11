@@ -1,0 +1,113 @@
+<!doctype html>
+<!-- Edit this page for your site: replace "this site" wording, the age note, and
+     add a real privacy-contact email. Linked from the footer of every page. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Privacy Policy</title>
+<style>
+:root{--bg:#f5f6f8;--ink:#1e242c;--muted:#6b7684;--accent:#2563eb;--line:#e2e6ec;--band:#243247}
+*{box-sizing:border-box}
+body{margin:0;background:#1c2430;color:var(--ink);
+font:16px/1.6 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+.page{max-width:760px;margin:0 auto;background:var(--bg);min-height:100vh;
+box-shadow:0 0 40px rgba(0,0,0,.4)}
+header{background:var(--band);padding:18px 24px;display:flex;align-items:center;gap:14px}
+header img{width:44px;height:auto}
+header .t{font-weight:700;color:#d7dee8}
+header a{margin-left:auto;color:#d7dee8;font-weight:600;font-size:14px;text-decoration:none}
+header a:hover{text-decoration:underline}
+main{padding:26px 28px 48px}
+h1{font-size:26px;margin:0 0 4px}
+.upd{color:var(--muted);font-size:14px;margin-bottom:20px}
+h2{font-size:19px;margin:26px 0 6px;color:var(--accent)}
+p,li{color:var(--ink)}
+a{color:var(--accent)}
+ul{padding-left:20px}
+footer{color:var(--muted);font-size:12px;text-align:center;padding:18px}
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <img src="assets/logo.svg" alt="">
+    <span class="t" id="siteName">Privacy</span>
+    <a href="/#/">← Back to site</a>
+  </header>
+  <main>
+    <h1>Privacy Policy</h1>
+    <div class="upd">Last updated: <span id="upd">2026</span></div>
+
+    <p>This site and its member forum are run by the site operator. This policy explains
+    what information is collected, how it is used, and your choices. It is short because
+    very little is collected.</p>
+
+    <h2>Information collected</h2>
+    <ul>
+      <li><strong>Account information</strong> — the email address and display name you
+      provide when you register, or that Google/Facebook shares if you choose to sign in
+      with them (your email and name only).</li>
+      <li><strong>Content you post</strong> — the topics, replies, and any photos or files
+      you upload to the forum.</li>
+      <li><strong>Basic technical data</strong> — standard web server and CDN logs
+      (e.g., IP address and browser type) used to operate and secure the site.</li>
+    </ul>
+    <p>No payment information is collected, and there is no advertising or third-party
+    tracking on this site.</p>
+
+    <h2>How it is used</h2>
+    <ul>
+      <li>To create and secure your member account and let you log in.</li>
+      <li>To show your posts and attribute them to your display name.</li>
+      <li>To operate, maintain, and protect the forum from abuse.</li>
+    </ul>
+
+    <h2>Signing in with Google or Facebook</h2>
+    <p>If you choose "Continue with Google" or "Continue with Facebook," that provider
+    verifies your identity and shares your <strong>name and email address</strong> so a
+    member account can be created or matched. The site does not receive your password,
+    your contacts, or any other data. You can always register with an email and password
+    instead.</p>
+
+    <h2>How your information is stored and shared</h2>
+    <p>The site runs on Amazon Web Services (AWS). Account sign-in is handled by Amazon
+    Cognito, and data is stored in AWS services on the operator's behalf, strictly to
+    operate the site.</p>
+    <p>Your personal information is <strong>not</strong> sold, rented, or traded. It is
+    only shared if required by law or to protect the site and its members.</p>
+
+    <h2>Cookies and local storage</h2>
+    <p>When you log in, a sign-in token is stored in your browser's session storage so you
+    stay logged in during your visit. It is cleared when you log out or close the tab.
+    There are no advertising or tracking cookies.</p>
+
+    <h2>Your choices</h2>
+    <ul>
+      <li>You can edit or delete your own posts while logged in.</li>
+      <li>You can request deletion of your account and associated content — contact the
+      site operator and an admin will help.</li>
+    </ul>
+
+    <h2>Changes to this policy</h2>
+    <p>If this policy changes, the new version will be posted here with a revised date.</p>
+
+    <h2>Contact</h2>
+    <p>Questions about this policy or your data? Reach the operator through the
+    <a href="/#/forum">forum</a>.<!-- TODO: add your real privacy contact email --></p>
+  </main>
+  <footer id="siteFooterLine"></footer>
+</div>
+<script src="site.config.js"></script>
+<script>
+  (function(){
+    var c = window.SITE_CONFIG || {};
+    if (c.name){
+      document.title = "Privacy Policy — " + c.name;
+      document.getElementById("siteName").textContent = c.name;
+      document.getElementById("siteFooterLine").textContent = "© " + c.name;
+    }
+  })();
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+/* Theme: dark. Every theme defines exactly this variable set. */
+:root{--bg:#161a20;--card:#1e242d;--ink:#e5e9ef;--muted:#8b95a3;--accent:#5b9dff;
+--accent2:#7cb1ff;--line:#2c3441;--rowalt:#232a35;--head:#9cc2ff;--danger:#f87171;
+--frame-bg:#0b0e12;--nav-bg:#11151b;--nav-border:#2c3441;--nav-ink:#c3ccd8;
+--nav-active-bg:#5b9dff;--nav-active-ink:#0b0e12;--pill-bg:#2c3441;--pill-ink:#e5e9ef;
+--hero-bg:#1a2028;--hero-border:#2c3441;--hl:#5b9dff;--ok:#4ade80;
+--err-bg:#3a2022;--err-border:#5c3134;--err-ink:#fca5a5;--footer-ink:#5d6678;--btn-ink:#0b0e12;
+--display:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+--font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
