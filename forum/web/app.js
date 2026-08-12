@@ -33,7 +33,6 @@ function catIcon(name) {
   if (n.includes("newsletter")) return "📰";
   if (n.includes("food")) return "🍔";
   if (n.includes("sale")) return "🏷️";
-  if (n.includes("general")) return "💬";
   return "💬";
 }
 
@@ -284,7 +283,7 @@ async function viewLanding(){
     ]),
   ]);
   const nodes = [hero];
-  // club announcements (public), posted by admins — never let a failed call break the landing
+  // announcements (public), posted by admins — never let a failed call break the landing
   try{
     const { announcements } = await api("/announcements");
     const list = (announcements || []).slice(0, 5);
@@ -425,10 +424,9 @@ async function viewPhotos(){
   ])));
   app.replaceChildren(
     crumb([{text:"Home",href:"#/"},{text:"Photos"}]),
-    panel("Club Photo Albums"),
+    panel("Photo Albums"),
     list.length ? grid : $("div",{class:"empty",text:"No albums."}),
-    $("p",{class:"muted",text:"Recovered from the original club gallery — click any "
-      + "photo for the full-size image."}));
+    $("p",{class:"muted",text:"Click any photo for the full-size image."}));
 }
 async function viewAlbum(albumId){
   setBusy();
@@ -746,7 +744,7 @@ async function viewMembers(){
     ])));
   app.replaceChildren(
     crumb([{text:"Home",href:"#/"},{text:"Members"}]),
-    panel("Club Members", $("span",{class:"act",text:`${members.length} member${members.length===1?"":"s"}`})),
+    panel("Members", $("span",{class:"act",text:`${members.length} member${members.length===1?"":"s"}`})),
     members.length ? grid
       : $("div",{class:"card"},[ $("p",{class:"muted",text:"No member profiles yet. "
           + "Log in and set up your profile to be the first!"}) ]));
@@ -783,7 +781,7 @@ async function viewUser(sub){
 }
 
 /* ------------------------------------------------------------ admin CMS */
-// Admin content management: club announcements + photo albums. Admins only.
+// Admin content management: announcements + photo albums. Admins only.
 async function viewAdmin(){
   if (!auth.isAdmin){ showErr({ message:"You need to be an admin to view this page." }); return; }
   setBusy();
@@ -1028,7 +1026,7 @@ async function viewAdmin(){
 
   app.replaceChildren(
     crumb([{text:"Home",href:"#/"},{text:"Admin"}]),
-    $("p",{class:"muted",text:"Post club announcements, edit the homepage intro, the "
+    $("p",{class:"muted",text:"Post announcements, edit the homepage intro, the "
       + "About/Contact pages and the Links list, manage the photo albums, and view the member roster."}),
     panel("Announcements"), annBox,
     panel("Homepage & Pages"),

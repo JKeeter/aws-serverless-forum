@@ -153,11 +153,6 @@ const server = http.createServer(async (req, res) => {
   const MIME = { ".js": "text/javascript", ".html": "text/html", ".css": "text/css",
     ".gif": "image/gif", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
     ".webp": "image/webp", ".svg": "image/svg+xml", ".pdf": "application/pdf" };
-  const serve = (fp) => {
-    res.setHeader("content-type", MIME[path.extname(fp).toLowerCase()] || "application/octet-stream");
-    res.end(fs.readFileSync(fp));
-  };
-
   // static app files
   let p = decodeURIComponent(url.pathname); if (p === "/") p = "/index.html";
   const fp = path.join(WEB, p);

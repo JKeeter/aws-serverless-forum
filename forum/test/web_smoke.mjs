@@ -144,6 +144,21 @@ const darkBg = await page3.evaluate(() =>
 ok(darkBg !== "" && darkBg !== "#f3efe7", "dark theme overrides --bg");
 await themed.close();
 
+/* ---------- Phase 3b: the standalone privacy page follows the theme ---------- */
+const priv = await browser.newContext();
+const page3b = await priv.newPage();
+await page3b.route("**/site.config.js", (route) => route.fulfill({
+  contentType: "text/javascript",
+  body: `window.SITE_CONFIG={name:"Priv Test",tagline:"t",logo:"assets/logo.svg",
+    footer:"f",layout:"sidebar",theme:"dark",nav:[]};`,
+}));
+await page3b.goto(BASE + "/privacy.html");
+await page3b.waitForSelector("header");
+ok((await page3b.locator("#theme-css").getAttribute("href")).endsWith("themes/dark.css"),
+  "privacy page loads the configured theme, not a hardcoded palette");
+ok((await page3b.title()).includes("Priv Test"), "privacy page title carries the site name");
+await priv.close();
+
 /* ---------- Phase 4: topnav layout ---------- */
 const topnav = await browser.newContext();
 const page4 = await topnav.newPage();

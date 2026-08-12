@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Load seed.ndjson (from build_site.py) into the forum's DynamoDB table.
+"""Load seed.ndjson (from build_seed.py) into the forum's DynamoDB table.
 Uses boto3 with YOUR stored AWS credentials/profile. Idempotent: re-running
 overwrites the same items (same keys), so it's safe to run again.
 
