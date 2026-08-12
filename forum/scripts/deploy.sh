@@ -8,6 +8,7 @@ STACK="${STACK:-serverless-forum}"
 REGION="${REGION:-us-east-1}"          # us-east-1 required (CloudFront ACM certs live there)
 IMPORT_FILE="${IMPORT_FILE:-}"          # optional: topics.json export of your old forum (see IMPORT.md)
 DOMAIN="${DOMAIN:-}"                    # optional custom domain, e.g. forum.example.com
+ALT_DOMAIN="${ALT_DOMAIN:-}"            # optional second alias, e.g. www.example.com (must be on the cert)
 ACM_ARN="${ACM_ARN:-}"                 # ACM cert ARN in us-east-1 (needed only with DOMAIN)
 # Cognito's hosted-login domain prefix must stay STABLE across redeploys (changing
 # it forces a domain rename that Cognito rejects mid-update). Reuse the existing
@@ -19,7 +20,11 @@ if [ -z "$COGNITO_PREFIX" ]; then
   if [ -n "$_EXIST" ] && [ "$_EXIST" != "None" ]; then
     COGNITO_PREFIX="${_EXIST%%.*}"        # strip .auth.<region>.amazoncognito.com
   else
-    COGNITO_PREFIX="$STACK-$RANDOM"
+    # Prefix must be globally unique across ALL AWS accounts and is limited to
+    # lowercase alphanumerics + hyphen, so normalize the stack name and use a
+    # wide random suffix instead of $RANDOM's 15 bits.
+    _SAFE=$(printf '%s' "$STACK" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | sed 's/^-*//;s/-*$//' | cut -c1-30)
+    COGNITO_PREFIX="${_SAFE:-forum}-$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')"
   fi
 fi
 # Optional social login. Fill these in (export before running) once you've
@@ -31,6 +36,26 @@ FACEBOOK_APP_ID="${FACEBOOK_APP_ID:-}"
 FACEBOOK_APP_SECRET="${FACEBOOK_APP_SECRET:-}"
 
 here="$(cd "$(dirname "$0")/.." && pwd)"; cd "$here"
+
+# ---- fail fast: validate the env contract BEFORE spending 10+ min on a deploy
+if [ -n "$DOMAIN" ] && [ -z "$ACM_ARN" ]; then
+  echo "ERROR: DOMAIN=$DOMAIN was set but ACM_ARN is empty." >&2
+  echo "       The stack would deploy WITHOUT your domain (CloudFront needs the" >&2
+  echo "       us-east-1 certificate), and your DNS would 403. See DEPLOY.md." >&2
+  exit 1
+fi
+if [ -n "$ACM_ARN" ] && [ -z "$DOMAIN" ]; then
+  echo "ERROR: ACM_ARN was set but DOMAIN is empty — nothing to attach it to." >&2; exit 1
+fi
+if [ -n "$ALT_DOMAIN" ] && [ -z "$DOMAIN" ]; then
+  echo "ERROR: ALT_DOMAIN was set but DOMAIN is empty." >&2; exit 1
+fi
+if [ -n "$IMPORT_FILE" ]; then
+  [ -f "$IMPORT_FILE" ] || { echo "ERROR: IMPORT_FILE not found: $IMPORT_FILE" >&2; exit 1; }
+  # Parse/validate the export now rather than after the stack is built.
+  echo "==> Validating $IMPORT_FILE"
+  python3 scripts/build_seed.py --file "$IMPORT_FILE" --out ./build
+fi
 echo "==> Account: $(aws sts get-caller-identity --query Account --output text) region=$REGION"
 
 # 1) Build + deploy the stack
@@ -40,6 +65,7 @@ echo "==> sam deploy"
 PARAMS="CognitoDomainPrefix=$COGNITO_PREFIX"
 [ -n "$DOMAIN" ]  && PARAMS="$PARAMS DomainName=$DOMAIN"
 [ -n "$ACM_ARN" ] && PARAMS="$PARAMS AcmCertificateArn=$ACM_ARN"
+[ -n "$ALT_DOMAIN" ] && PARAMS="$PARAMS AltDomainName=$ALT_DOMAIN"
 [ -n "$GOOGLE_CLIENT_ID" ]     && PARAMS="$PARAMS GoogleClientId=$GOOGLE_CLIENT_ID GoogleClientSecret=$GOOGLE_CLIENT_SECRET"
 [ -n "$FACEBOOK_APP_ID" ]      && PARAMS="$PARAMS FacebookClientId=$FACEBOOK_APP_ID FacebookClientSecret=$FACEBOOK_APP_SECRET"
 sam deploy --stack-name "$STACK" --region "$REGION" \
@@ -60,6 +86,7 @@ echo "==> web=$WEB media=$MEDIA table=$TABLE dist=$DIST"
 #     other client settings.
 CB_URLS="https://$CFDOMAIN/"
 [ -n "$DOMAIN" ] && CB_URLS="$CB_URLS https://$DOMAIN/"
+[ -n "$ALT_DOMAIN" ] && CB_URLS="$CB_URLS https://$ALT_DOMAIN/"
 echo "==> Registering login callback URLs: $CB_URLS"
 python3 scripts/register_callback.py --pool "$POOL" --client "$CLIENT" \
   --region "$REGION" --urls $CB_URLS
@@ -85,14 +112,15 @@ EOF
 echo "==> Uploading web app"
 aws s3 sync web "s3://$WEB" --delete \
   --cache-control "no-cache" --exclude "*.png" --exclude "*.jpg"
-# Image assets are excluded above, so push them explicitly with a longer cache.
-# --delete on the sync above skips excludes, so nothing here gets wiped.
-aws s3 sync web/assets "s3://$WEB/assets" --cache-control "public,max-age=86400"
+# Re-push the assets with a long cache header. `cp --recursive`, not `sync`:
+# non-png/jpg assets (e.g. logo.svg) were already uploaded above with no-cache,
+# and a sync would see them as current and skip, never applying this header.
+aws s3 cp web/assets "s3://$WEB/assets" --recursive \
+  --cache-control "public,max-age=86400"
 
 # 5) Optional: import a legacy forum export (see IMPORT.md)
 if [ -n "$IMPORT_FILE" ]; then
-  echo "==> Building seed from $IMPORT_FILE"
-  python3 scripts/build_seed.py --file "$IMPORT_FILE" --out ./build
+  # seed.ndjson was already built and validated during the pre-flight above
   echo "==> Loading forum seed into DynamoDB"
   python3 scripts/load_seed.py --table "$TABLE" --file build/seed.ndjson --region "$REGION"
 fi

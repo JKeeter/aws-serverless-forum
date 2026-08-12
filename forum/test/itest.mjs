@@ -215,10 +215,10 @@ r = await call("GET", "/api/roster", { route: "GET /api/roster", user: member })
 ok(r.s === 403, "roster is admin-only (member forbidden)");
 // avatar upload presign (image), and a non-image rejected
 r = await call("POST", "/api/uploads", { route: "POST /api/uploads", user: member,
-  body: { contentType: "image/png", filename: "me.png", purpose: "avatar" } });
+  body: { contentType: "image/png", filename: "me.png", purpose: "avatar", size: 2048 } });
 ok(r.s === 200 && r.d.publicUrl.startsWith("/media/avatars/user-1/"), "avatar presign lands under the user's avatar prefix");
 r = await call("POST", "/api/uploads", { route: "POST /api/uploads", user: member,
-  body: { contentType: "application/pdf", filename: "me.pdf", purpose: "avatar" } });
+  body: { contentType: "application/pdf", filename: "me.pdf", purpose: "avatar", size: 2048 } });
 ok(r.s === 400, "a non-image avatar upload is rejected");
 
 // ---- validation ----
@@ -276,11 +276,11 @@ ok(r.s === 200, "admin can edit an archived post");
 
 // ---- uploads (presigned S3 PUT) ----
 r = await call("POST", "/api/uploads",
-  { route: "POST /api/uploads", body: { contentType: "image/jpeg", filename: "pic.jpg" } });
+  { route: "POST /api/uploads", body: { contentType: "image/jpeg", filename: "pic.jpg", size: 2048 } });
 ok(r.s === 401, "anonymous cannot request an upload URL");
 
 r = await call("POST", "/api/uploads",
-  { route: "POST /api/uploads", body: { contentType: "image/jpeg", filename: "pic.jpg" }, user: member });
+  { route: "POST /api/uploads", body: { contentType: "image/jpeg", filename: "pic.jpg", size: 2048 }, user: member });
 ok(r.s === 200 && typeof r.d.uploadUrl === "string" && r.d.uploadUrl.startsWith("https://"),
   "logged-in member gets a presigned upload URL");
 ok(r.d.publicUrl && r.d.publicUrl.startsWith("/media/uploads/user-1/"),
@@ -288,12 +288,30 @@ ok(r.d.publicUrl && r.d.publicUrl.startsWith("/media/uploads/user-1/"),
 ok(r.d.key && r.d.key.endsWith(".jpg"), "key keeps a safe extension from content-type");
 
 r = await call("POST", "/api/uploads",
-  { route: "POST /api/uploads", body: { contentType: "application/x-msdownload", filename: "evil.exe" }, user: member });
+  { route: "POST /api/uploads", body: { contentType: "application/x-msdownload", filename: "evil.exe", size: 2048 }, user: member });
 ok(r.s === 400, "disallowed content-type rejected");
 
 r = await call("POST", "/api/uploads",
   { route: "POST /api/uploads", body: { filename: "nope" }, user: member });
 ok(r.s === 400, "missing content-type rejected");
+
+// size must be declared so it can be signed into the URL (S3 then enforces it)
+r = await call("POST", "/api/uploads",
+  { route: "POST /api/uploads", body: { contentType: "image/jpeg", filename: "p.jpg" }, user: member });
+ok(r.s === 400, "upload without a declared size is rejected");
+
+r = await call("POST", "/api/uploads",
+  { route: "POST /api/uploads", body: { contentType: "image/jpeg", filename: "p.jpg", size: -1 }, user: member });
+ok(r.s === 400, "negative size rejected");
+
+r = await call("POST", "/api/uploads",
+  { route: "POST /api/uploads",
+    body: { contentType: "image/jpeg", filename: "huge.jpg", size: 500 * 1024 * 1024 }, user: member });
+ok(r.s === 413, "oversized upload rejected before a URL is issued");
+
+r = await call("POST", "/api/uploads",
+  { route: "POST /api/uploads", body: { contentType: "image/jpeg", filename: "p.jpg", size: 1024 }, user: member });
+ok(r.s === 200 && r.d.maxBytes > 0, "presign response advertises the size cap");
 
 // ---- admin announcements ----
 r = await call("POST", "/api/announcements",

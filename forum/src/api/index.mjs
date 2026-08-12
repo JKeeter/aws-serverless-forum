@@ -19,6 +19,9 @@ const cognito = new CognitoIdentityProviderClient({});
 // Attachments members may upload (logged-in only). Extension is derived from the
 // content-type here — the client never picks the stored filename, so a ".exe"
 // can't be smuggled in and the media bucket only ever holds these types.
+// Largest single upload, enforced by signing the length into the presigned URL.
+// Override with the MaxUploadMB stack parameter.
+const MAX_UPLOAD_BYTES = (Number(process.env.MAX_UPLOAD_MB) || 10) * 1024 * 1024;
 const UPLOAD_TYPES = {
   "image/jpeg": "jpg", "image/png": "png", "image/gif": "gif",
   "image/webp": "webp", "application/pdf": "pdf",
@@ -304,6 +307,15 @@ async function createUpload(event, user) {
   const ct = (b.contentType || "").toLowerCase();
   const ext = UPLOAD_TYPES[ct];
   if (!ext) return json(400, { error: "unsupported content type" });
+  // A presigned PUT cannot cap its own size, so the caller declares the byte
+  // count and we sign it into the URL: S3 then rejects any body that isn't
+  // exactly this long. Without this, any logged-in member could push an
+  // arbitrarily large object into the media bucket.
+  const size = Number(b.size);
+  if (!Number.isInteger(size) || size <= 0)
+    return json(400, { error: "size (bytes) is required" });
+  if (size > MAX_UPLOAD_BYTES)
+    return json(413, { error: `file too large (max ${Math.floor(MAX_UPLOAD_BYTES / 1048576)} MB)` });
   let key;
   if (b.purpose === "gallery") {           // admin gallery photo
     if (!user.isAdmin) return json(403, { error: "admin only" });
@@ -315,10 +327,12 @@ async function createUpload(event, user) {
     key = `media/uploads/${user.sub}/${randomUUID()}.${ext}`;
   }
   const uploadUrl = await getSignedUrl(
-    s3, new PutObjectCommand({ Bucket: MEDIA_BUCKET, Key: key, ContentType: ct }),
+    s3, new PutObjectCommand({
+      Bucket: MEDIA_BUCKET, Key: key, ContentType: ct, ContentLength: size,
+    }),
     { expiresIn: 300 },
   );
-  return json(200, { uploadUrl, key, publicUrl: `/${key}`, contentType: ct });
+  return json(200, { uploadUrl, key, publicUrl: `/${key}`, contentType: ct, maxBytes: MAX_UPLOAD_BYTES });
 }
 
 // Turn a pasted profile/social value into a safe URL: keep full http(s) URLs,

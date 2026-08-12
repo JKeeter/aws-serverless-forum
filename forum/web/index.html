@@ -28,7 +28,18 @@
   // theme + layout bootstrap (before app.js renders)
   (function () {
     var c = window.SITE_CONFIG || {};
-    document.getElementById("theme-css").href = "themes/" + (c.theme || "neutral-light") + ".css";
+    var link = document.getElementById("theme-css");
+    var theme = c.theme || "neutral-light";
+    if (theme !== "neutral-light") {
+      // Every colour in the app comes from the theme file's variables, so a
+      // misspelled name would otherwise render an unstyled site. Fall back to
+      // the default sheet (already linked) if the chosen one 404s.
+      link.onerror = function () {
+        console.error('SITE_CONFIG.theme "' + theme + '" not found; using neutral-light.');
+        link.href = "themes/neutral-light.css";
+      };
+      link.href = "themes/" + theme + ".css";
+    }
     document.body.classList.add("layout-" + (c.layout === "topnav" ? "topnav" : "sidebar"));
     document.title = c.name || "Forum";
   })();

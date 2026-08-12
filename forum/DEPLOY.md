@@ -33,6 +33,7 @@ UI. To also import an old forum's threads, set `IMPORT_FILE` first (see
 | `IMPORT_FILE` | *(unset)* | Path to a `topics.json` legacy export to import |
 | `DOMAIN` | *(unset)* | Custom domain, e.g. `forum.example.com` |
 | `ACM_ARN` | *(unset)* | ACM certificate ARN in us-east-1 (required with `DOMAIN`) |
+| `ALT_DOMAIN` | *(unset)* | Optional second alias, e.g. `www.example.com`. Must also be on the certificate |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | *(unset)* | Enable Google login |
 | `FACEBOOK_APP_ID` / `FACEBOOK_APP_SECRET` | *(unset)* | Enable Facebook login |
 | `COGNITO_PREFIX` | auto | Hosted-login domain prefix; auto-generated once, then reused |
@@ -82,6 +83,12 @@ with each provider, then redeploy with the credentials — no code changes.
    ```
 3. At your DNS host, point the domain at the CloudFront domain (ALIAS/ANAME,
    or a CNAME on a subdomain). CloudFront's domain is in the deploy output.
+
+Only the domains you name are attached. If you want `www.` as well, request a
+certificate covering both and add `export ALT_DOMAIN="www.example.com"` — the
+deploy wires it into CloudFront and the Cognito callbacks. `deploy.sh` refuses
+to run if `DOMAIN` is set without `ACM_ARN`, rather than deploying a stack that
+silently ignores your domain.
 
 Cognito's login callbacks are registered for both the CloudFront URL and your
 custom domain, so logins work before and after the DNS switch.

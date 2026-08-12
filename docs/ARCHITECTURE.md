@@ -110,9 +110,11 @@ clobbering other client settings.
   content.
 - **Least-privilege IAM:** the Lambda gets only the DynamoDB/S3 actions it
   needs.
-- **Uploads:** presigned, type-allowlisted (jpg/png/gif/webp/pdf), size-capped,
-  into a bucket only served via CloudFront; media renders only from same-origin
-  `/media/` paths.
+- **Uploads:** presigned and type-allowlisted (jpg/png/gif/webp/pdf), into a
+  bucket only served via CloudFront; media renders only from same-origin
+  `/media/` paths. Size is capped by having the caller declare the byte count:
+  the API rejects anything over `MaxUploadMB` (default 10 MB) and signs the
+  length into the URL, so S3 itself refuses a body of any other size.
 - **Optional AWS WAF** on CloudFront (rate limiting, managed rules) if you
   ever want it; unnecessary at small scale.
 - **Backups:** DynamoDB point-in-time recovery is on.

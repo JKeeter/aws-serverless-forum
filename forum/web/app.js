@@ -186,7 +186,7 @@ function attachmentsNode(atts){
 async function uploadFile(file){
   if (!file.type) throw new Error("unknown file type");
   const meta = await api("/uploads",{method:"POST", authd:true,
-    body:{ contentType:file.type, filename:file.name }});
+    body:{ contentType:file.type, filename:file.name, size:file.size }});
   const put = await fetch(meta.uploadUrl,{method:"PUT",
     headers:{ "content-type": meta.contentType }, body:file });
   if (!put.ok) throw new Error("upload failed ("+put.status+")");
@@ -197,7 +197,7 @@ async function uploadFile(file){
 async function uploadGallery(file){
   if (!file.type) throw new Error("unknown file type");
   const meta = await api("/uploads",{method:"POST", authd:true,
-    body:{ contentType:file.type, filename:file.name, purpose:"gallery" }});
+    body:{ contentType:file.type, filename:file.name, size:file.size, purpose:"gallery" }});
   const put = await fetch(meta.uploadUrl,{method:"PUT",
     headers:{ "content-type": file.type }, body:file });
   if (!put.ok) throw new Error("upload failed ("+put.status+")");
@@ -664,7 +664,7 @@ async function viewNewTopic(catId){
 async function uploadAvatar(file){
   if (!file.type.startsWith("image/")) throw new Error("Please choose an image file.");
   const meta = await api("/uploads",{method:"POST",authd:true,
-    body:{ contentType:file.type, filename:file.name, purpose:"avatar" }});
+    body:{ contentType:file.type, filename:file.name, size:file.size, purpose:"avatar" }});
   const put = await fetch(meta.uploadUrl,{method:"PUT",headers:{"content-type":meta.contentType},body:file});
   if (!put.ok) throw new Error("upload failed ("+put.status+")");
   return meta.publicUrl;
@@ -1264,7 +1264,18 @@ function paintChrome(){
   const img = document.getElementById("brandImg");
   img.src = c.logo || "assets/logo.svg"; img.alt = c.name || "logo";
   const nav = document.getElementById("mainnav");
-  nav.replaceChildren(...(c.nav || []).map(i => $("a",{href:i.href,text:i.label})));
+  // A hand-edited site.config.js is the most likely thing to be malformed, and
+  // paintChrome runs before anything renders — a bad entry must not blank the
+  // whole site. Skip unusable items instead of emitting "undefined" links.
+  const items = Array.isArray(c.nav) ? c.nav : [];
+  if (!Array.isArray(c.nav) && c.nav != null)
+    console.warn("SITE_CONFIG.nav must be an array; ignoring it.");
+  nav.replaceChildren(...items.reduce((out, i) => {
+    if (i && typeof i.href === "string" && typeof i.label === "string" && i.label)
+      out.push($("a",{href:i.href,text:i.label}));
+    else console.warn("SITE_CONFIG.nav: skipping entry without {label, href}:", i);
+    return out;
+  }, []));
   const adminA = $("a",{href:"#/admin",text:"Admin"}); adminA.id="adminNav"; adminA.style.display="none";
   nav.append(adminA);
   document.getElementById("siteFooter").textContent = c.footer || c.name || "";

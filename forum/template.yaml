@@ -9,6 +9,14 @@ Parameters:
     Type: String
     Default: ''
     Description: Custom domain (e.g. forum.example.com). Leave empty to use the CloudFront default domain first.
+  MaxUploadMB:
+    Type: Number
+    Default: 10
+    Description: Largest single file (MB) a member may upload. Enforced in the presigned URL.
+  AltDomainName:
+    Type: String
+    Default: ''
+    Description: Optional second alias (e.g. www.example.com). Must also be covered by the ACM certificate.
   AcmCertificateArn:
     Type: String
     Default: ''
@@ -40,6 +48,10 @@ Conditions:
   HasDomain: !And
     - !Not [!Equals [!Ref DomainName, '']]
     - !Not [!Equals [!Ref AcmCertificateArn, '']]
+  HasAltDomain: !And
+    - !Not [!Equals [!Ref DomainName, '']]
+    - !Not [!Equals [!Ref AcmCertificateArn, '']]
+    - !Not [!Equals [!Ref AltDomainName, '']]
   HasGoogle: !Not [!Equals [!Ref GoogleClientId, '']]
   HasFacebook: !Not [!Equals [!Ref FacebookClientId, '']]
 
@@ -210,6 +222,7 @@ Resources:
       Environment:
         Variables:
           TABLE: !Ref ForumTable
+          MAX_UPLOAD_MB: !Ref MaxUploadMB
           MEDIA_BUCKET: !Ref MediaBucket
           USER_POOL_ID: !Ref UserPool
       Policies:
@@ -400,7 +413,13 @@ Resources:
         DefaultRootObject: index.html
         HttpVersion: http2
         PriceClass: PriceClass_100
-        Aliases: !If [HasDomain, [!Ref DomainName, !Sub 'www.${DomainName}'], !Ref 'AWS::NoValue']
+        # Only the domains you asked for. An unconditional www.<domain> would
+        # break every subdomain deploy (a cert for forum.example.com does not
+        # cover www.forum.example.com, and CloudFront rejects the update).
+        Aliases: !If
+          - HasDomain
+          - !If [HasAltDomain, [!Ref DomainName, !Ref AltDomainName], [!Ref DomainName]]
+          - !Ref 'AWS::NoValue'
         ViewerCertificate: !If
           - HasDomain
           - AcmCertificateArn: !Ref AcmCertificateArn

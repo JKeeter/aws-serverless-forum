@@ -35,6 +35,7 @@ import json
 import os
 import re
 import sys
+from datetime import datetime
 
 
 def slug(s, fallback="imported"):
@@ -45,6 +46,32 @@ def slug(s, fallback="imported"):
 
 def die(msg):
     sys.exit(f"build_seed: {msg}")
+
+
+# Epoch seconds used for a post that carries no usable timestamp AND has no
+# timestamped predecessor in its topic. Everything after it is placed relative
+# to its predecessor, so array order always survives the import.
+UNDATED_BASE = 1_000_000_000
+
+
+def to_epoch(raw, where):
+    """Accept epoch seconds (int/float/numeric string) or an ISO-8601 date
+    string — the two shapes real forum exports produce. Anything else is a hard
+    error, because a silently-wrong date corrupts thread order permanently."""
+    if isinstance(raw, bool):
+        die(f"{where}: ts must be a number or date string, got a boolean")
+    if isinstance(raw, (int, float)):
+        return int(raw)
+    s = str(raw).strip()
+    try:
+        return int(float(s))
+    except ValueError:
+        pass
+    iso = s.replace("Z", "+00:00") if s.endswith("Z") else s
+    try:
+        return int(datetime.fromisoformat(iso).timestamp())
+    except ValueError:
+        die(f"{where}: ts {raw!r} is neither epoch seconds nor an ISO-8601 date")
 
 
 def build_seed(topics, out_path):
@@ -69,9 +96,22 @@ def build_seed(topics, out_path):
         tcat = slug((t.get("category") or "Imported").strip() or "Imported")
         post_epochs = []
         post_items = []
+        prev = None
         for k, p in enumerate(t["posts"]):
             seq += 1
-            ep = int(p.get("ts") or 1_000_000_000 + seq)
+            raw = p.get("ts")
+            if raw is None or (isinstance(raw, str) and not raw.strip()):
+                # No timestamp: sit one second after the previous post so the
+                # export's array order is preserved (IMPORT.md promises this).
+                ep = prev + 1 if prev is not None \
+                    else int(t.get("createdTs") or UNDATED_BASE + seq)
+            else:
+                ep = to_epoch(raw, f"topic {tid}, post {k + 1}")
+                if prev is not None and ep <= prev:
+                    # Out-of-order or duplicate stamps would collide in the sort
+                    # key; nudge forward so array order still wins.
+                    ep = prev + 1
+            prev = ep
             post_epochs.append(ep)
             pid = f"{tid}-{k + 1}"
             post_items.append({
@@ -105,7 +145,9 @@ def validate(data):
     if not isinstance(data, dict) or not isinstance(data.get("topics"), list):
         die('input must be an object with a "topics" array (see IMPORT.md)')
     seen = set()
-    for t in data["topics"]:
+    for n, t in enumerate(data["topics"]):
+        if not isinstance(t, dict):
+            die(f"topics[{n}] must be an object, got {type(t).__name__}")
         tid = t.get("id")
         if tid is None or str(tid) == "":
             die("every topic needs an id")

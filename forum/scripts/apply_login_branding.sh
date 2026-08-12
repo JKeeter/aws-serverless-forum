@@ -11,24 +11,40 @@ STACK="${STACK:-serverless-forum}"; REGION="${REGION:-us-east-1}"
 here="$(cd "$(dirname "$0")/.." && pwd)"; cd "$here"
 
 # Pull LOGO + brand colors out of the active theme's CSS variables.
-eval "$(python3 - <<'PY'
-import re
-cfg = open('web/site.config.js').read()
-theme = re.search(r'theme:\s*"([^"]+)"', cfg).group(1)
-logo  = re.search(r'logo:\s*"([^"]+)"', cfg).group(1)
-css = open(f'web/themes/{theme}.css').read()
+# Assigned first, then eval'd: the exit status of a command substitution inside
+# `eval` is invisible to `set -e`, so a parse failure here would otherwise sail
+# past and resurface later as a confusing "unbound variable".
+_CFG_VARS=$(python3 - <<'PY'
+import re, sys
+raw = open('web/site.config.js').read()
+# Strip // line comments first — site.config.js teaches commenting entries out,
+# and a stale commented `theme:`/`logo:` line would otherwise match first.
+cfg = re.sub(r'(?m)^\s*//.*$', '', raw)
+def need(field):
+    m = re.search(field + r':\s*"([^"]+)"', cfg)
+    if not m:
+        sys.exit(f'site.config.js: no {field}: "..." value found')
+    return m.group(1)
+theme, logo = need('theme'), need('logo')
+try:
+    css = open(f'web/themes/{theme}.css').read()
+except FileNotFoundError:
+    sys.exit(f'theme file web/themes/{theme}.css not found (check SITE_CONFIG.theme)')
 v = dict((k, val.strip()) for k, val in re.findall(r'--([a-z0-9-]+):([^;}]+)', css))
 def hex8(name):
-    val = v[name]
+    val = v.get(name)
+    if val is None: sys.exit(f'theme {theme} does not define --{name}')
     m = re.fullmatch(r'#([0-9a-fA-F]{6})', val)
-    if not m: raise SystemExit(f"theme var --{name} is not a 6-digit hex color: {val}")
+    if not m: sys.exit(f'theme var --{name} is not a 6-digit hex color: {val}')
     return m.group(1).lower() + 'ff'
 print(f'LOGO="web/{logo}"')
 print(f'C_PAGE="{hex8("bg")}" C_CARD="{hex8("card")}" C_LINE="{hex8("line")}"')
 print(f'C_ACCENT="{hex8("accent")}" C_ACCENT2="{hex8("accent2")}" C_BTN_INK="{hex8("btn-ink")}"')
 print(f'PAD_RGB="{v["card"].lstrip("#").upper()}"')
 PY
-)"
+) || { echo "ERROR: could not read theme/logo from web/site.config.js (see above)" >&2; exit 1; }
+eval "$_CFG_VARS"
+[ -f "$LOGO" ] || { echo "ERROR: logo file not found: $LOGO" >&2; exit 1; }
 echo "==> logo=$LOGO accent=#$C_ACCENT"
 
 out(){ aws cloudformation describe-stacks --stack-name "$STACK" --region "$REGION" \
@@ -57,18 +73,24 @@ C_ACCENT2="$C_ACCENT2" C_BTN_INK="$C_BTN_INK" python3 - <<'PY'
 import json, os
 d=json.load(open('/tmp/login_settings.json')); c=d['components']
 e=os.environ
-c['pageBackground']['lightMode']['color']=e['C_PAGE']
 c['pageBackground'].setdefault('image',{})['enabled']=False
-c['form']['lightMode']['backgroundColor']=e['C_CARD']
-c['form']['lightMode']['borderColor']=e['C_LINE']; c['form']['borderRadius']=12.0
+c['form']['borderRadius']=12.0
 c['form']['logo']={'location':'CENTER','position':'TOP','enabled':True,'formInclusion':'IN'}
-pb=c['primaryButton']['lightMode']
-for st in ('defaults','hover','active'):
-    pb[st]['backgroundColor']=e['C_ACCENT'] if st=='defaults' else e['C_ACCENT2']
-    pb[st]['textColor']=e['C_BTN_INK']
-lk=d['componentClasses'].get('link',{}).get('lightMode',{})
-for st in ('defaults','hover'):
-    if st in lk and 'textColor' in lk[st]: lk[st]['textColor']=e['C_ACCENT']
+# The site ships ONE palette, so brand light AND dark identically. Styling only
+# lightMode left dark-mode visitors on Cognito's defaults with our logo pasted on.
+for mode in ('lightMode','darkMode'):
+    if mode in c['pageBackground']: c['pageBackground'][mode]['color']=e['C_PAGE']
+    if mode in c['form']:
+        c['form'][mode]['backgroundColor']=e['C_CARD']
+        c['form'][mode]['borderColor']=e['C_LINE']
+    pb=c['primaryButton'].get(mode) or {}
+    for st in ('defaults','hover','active'):
+        if st not in pb: continue
+        pb[st]['backgroundColor']=e['C_ACCENT'] if st=='defaults' else e['C_ACCENT2']
+        pb[st]['textColor']=e['C_BTN_INK']
+    lk=d['componentClasses'].get('link',{}).get(mode,{})
+    for st in ('defaults','hover'):
+        if st in lk and 'textColor' in lk[st]: lk[st]['textColor']=e['C_ACCENT']
 json.dump(d,open('/tmp/login_settings.mod.json','w'))
 PY
 

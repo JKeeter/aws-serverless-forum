@@ -50,18 +50,25 @@ contract** (structural CSS uses only these):
 --bg --card --ink --muted --accent --accent2 --line --rowalt --head --danger
 --frame-bg --nav-bg --nav-border --nav-ink --nav-active-bg --nav-active-ink
 --pill-bg --pill-ink --hero-bg --hero-border --hl --ok
---err-bg --err-border --err-ink --footer-ink --btn-ink
+--err-bg --err-border --err-ink --footer-ink --btn-ink --shadow
 --display --font
 ```
 
 Colors must be 6-digit hex (`#rrggbb`) — the login-page branding script parses
-them. `--display` (headings) and `--font` (body) are font stacks.
+them. The one exception is `--shadow`, an `rgba()` value because it needs
+alpha. `--display` (headings) and `--font` (body) are font stacks.
+
+A theme name that doesn't resolve falls back to `neutral-light` and logs a
+console error, rather than rendering the site with no colors at all.
 
 ## Logo
 
-Replace `forum/web/assets/logo.svg` or point `logo:` at any image file you add
-under `forum/web/assets/`. Any web format works in the site itself; the
-Cognito login page needs it convertible to PNG (SVG/PNG/JPG all fine).
+Replace `forum/web/assets/logo.svg`, or add your own file under
+`forum/web/assets/` and point `logo:` at it. The path is relative to
+`forum/web/` (so `assets/my-logo.png`). Keep logos inside `assets/` — that's
+the directory the deploy uploads with a long cache header. Any web format works
+in the site itself; the Cognito login page needs it convertible to PNG
+(SVG/PNG/JPG all fine).
 
 ## Login page branding
 

@@ -35,8 +35,9 @@ sam validate --lint             # template check
   (`window.FORUM_CONFIG`); `web/site.config.js` = user branding, never touched
   by deploys (`window.SITE_CONFIG`: name/tagline/logo/footer/layout/theme/nav).
 - **Themes** are CSS-variable-only files in `web/themes/` (contract listed in
-  CUSTOMIZE.md); structural CSS lives in `web/styles.css` and may not hardcode
-  colors (lightbox overlay whites are the one allowed exception). Layouts are
+  CUSTOMIZE.md, and it includes `--shadow`); structural CSS lives in
+  `web/styles.css` and may not hardcode colors — including inside `rgba()`.
+  The only exceptions are the lightbox's pure black/white overlay values. Layouts are
   body classes `layout-sidebar` / `layout-topnav` — CSS only, same markup.
 - Deploy region must be **us-east-1** (CloudFront's ACM cert lives there).
 

@@ -34,10 +34,10 @@ however you can get the data out):
 | `title` | yes | plain text |
 | `category` | no | display name; one forum category is created per distinct value (slugged id). Defaults to "Imported" |
 | `author` | no | topic starter's display name; defaults to the first post's author |
-| `createdTs` | no | epoch seconds; defaults to the first post's `ts` |
+| `createdTs` | no | epoch seconds or ISO-8601; defaults to the first post's `ts` |
 | `posts[].body` | yes | plain text — stored and rendered as text (never HTML) |
 | `posts[].author` | no | display name string |
-| `posts[].ts` | no | epoch seconds; ordering falls back to array order if missing |
+| `posts[].ts` | no | epoch seconds **or** an ISO-8601 string (`2009-05-01T10:00:00Z`). A post without one is placed just after the previous post, so your array order always survives |
 
 A runnable example lives at [`examples/topics.sample.json`](examples/topics.sample.json).
 
@@ -49,7 +49,9 @@ export IMPORT_FILE=/path/to/topics.json
 bash scripts/deploy.sh
 ```
 
-`deploy.sh` runs `scripts/build_seed.py` (validates the file, emits
+`deploy.sh` validates your file **before** it touches AWS, so a malformed
+export fails in seconds rather than after a full stack deploy. It runs
+`scripts/build_seed.py` (validates the file, emits
 `build/seed.ndjson` in the forum's single-table key layout) and
 `scripts/load_seed.py` (batch-writes it to DynamoDB). Without `IMPORT_FILE`,
 deploy skips import entirely — a fresh forum starts empty and the first admin
@@ -68,6 +70,27 @@ node test/devserver.mjs     # picks up build/seed.ndjson automatically
 ```
 
 Open http://localhost:8100 and browse your imported forum before deploying.
+
+## Bringing over post attachments (optional)
+
+Post bodies are plain text, but any line that is a same-origin `/media/...`
+path renders as an inline image (or a download link for PDFs). So to carry old
+attachments across:
+
+1. Upload the files to the media bucket under `media/archive/`:
+   ```bash
+   MEDIA=$(aws cloudformation describe-stacks --stack-name serverless-forum \
+     --region us-east-1 --query "Stacks[0].Outputs[?OutputKey=='MediaBucketName'].OutputValue" \
+     --output text)
+   aws s3 sync ./old-attachments "s3://$MEDIA/media/archive"
+   ```
+2. In your `topics.json`, reference each one on its own line in the post body:
+   ```json
+   { "author": "Pat", "body": "Here's the photo from the meetup:\n/media/archive/meetup.jpg" }
+   ```
+
+Only `/media/...` paths render — arbitrary external URLs stay as plain text
+links, which is what keeps imported content from injecting anything.
 
 ## Photo gallery seeding (optional)
 
